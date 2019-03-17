@@ -1,0 +1,324 @@
+/* DOM elements*/
+body {
+    color: #2b2b2b;
+}
+
+kbd{
+    font-size: 0.8em;
+}
+/* \Main elements*/
+
+/* Predefining Bootstrap styles*/
+.btn-primary{
+    background-color: #2a2f30;
+    border-color: #353b3d;
+}
+
+.btn-primary:hover{
+    background-color: #ffb600;
+    border-color: #ffb600;
+}
+
+.btn-primary:active{
+    background-color: #ffb600 !important;
+    border-color: #ffb600 !important;
+    box-shadow: 0 0 0 0.2rem rgba(255, 200, 0, 0.5) !important;
+}
+
+.btn-primary:focus, .btn-primary.focus {
+    box-shadow: 0 0 0 0.2rem rgba(255, 200, 0, 0.5);
+}
+
+.navbar {
+    background-color: #2a2f30 !important;
+    padding-top: 0;
+    padding-bottom: 0;
+    height: 5vh;
+}
+.navbar a{
+    font-size: 0.8em;
+    color: #d1d1d1 !important;
+    cursor: pointer;
+}
+
+.navbar a:hover{
+    font-size: 0.8em;
+    color: #fff !important;
+}
+
+.navbar a:focus{
+    font-size: 0.8em;
+    color: #ffb600 !important;
+}
+
+.navbar .dropdown-menu {
+    background-color: #2a2f30;
+    padding: 0;
+}
+
+.navbar .dropdown-menu .dropdown-item:hover{
+    background-color: #ffb600;
+    color: #fff !important;
+}
+
+.navbar .dropdown-menu .dropdown-item:active{
+    background-color: #fff;
+    color: #ffb600 !important;
+}
+
+.form-group{
+    margin-bottom: 0;
+}
+
+.form-control:focus {
+    box-shadow: 0 0 0 0.2rem rgba(255, 200, 0, 0.5) !important;
+    border-color: #ffb600;
+}
+
+input{
+    box-shadow: none;
+}
+/* \Predefining Bootstrap styles*/
+
+/* General purpose styles */
+div.no-padding {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.small-margin {
+    box-sizing: border-box;
+    margin: 0 -20px;
+}
+
+.absolute {
+    position: absolute;
+}
+
+.h-center {
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.top-buffer{
+    margin-top: 60px;
+}
+
+.slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 5px;
+    border-radius: 5px;
+    background: #2a2f30;
+    outline: none;
+    opacity: 0.7;
+    -webkit-transition: .2s;
+    transition: opacity .2s;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 25px;
+    border-radius: 4px;
+    background: #ffb600;
+    cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 25px;
+    border-radius: 4px;
+    background: #ffb600;
+    cursor: pointer;
+    border: 1px solid #1b1e21;
+}
+
+/* \General purpose styles */
+
+/* Home page styles */
+div#greeting-card {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #1b1e21;
+    width: 20rem;
+}
+
+canvas#graphs {
+    width: 100%;
+    height:99vh;
+}
+
+div#footer{
+    background-color: #ebebeb;
+    color: #1b1e21;
+    padding: 20px 0 !important;
+}
+
+div#footer > div{
+    display: inline-block;
+}
+
+div.jumbotron-wrapper {
+    background-color: #2a2f30;
+    color: #fff;
+    text-align: center;
+    height: 100vh;
+}
+
+div.clip-thumb{
+    height: 200px;
+    background-color: #ced4da;
+}
+/* \Home page styles */
+/* Editor page styles */
+#drawing-space{
+    height: 95vh;
+    background-color: #696969;
+}
+
+#drawing-space #main-canvas{
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+
+#drawing-space #controls{
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.5);
+    padding: 5px;
+    font-size: 2em;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    cursor: auto;
+}
+
+#drawing-space #controls a:hover{
+    cursor: pointer;
+    color: #fff;
+}
+
+#drawing-space #controls kbd{
+    font-size: 0.4em;
+}
+
+#drawing-space #grid-checkbox-container{
+    margin: 20px;
+    right: 0;
+    background-color: rgba(255,255,255,0.1);
+    padding: 3px 10px;
+    padding-top: 8px;
+    border-radius: 4px;
+}
+#drawing-space #canvas-commands{
+    left: 0;
+    bottom: 0;
+    padding: 10px 20px;
+    font-size: 0.8em;
+    background-color: rgba(255,255,255,0.2);
+    border-top-right-radius: 4px;
+}
+
+#drawing-space #grid-checkbox-container:hover {
+    background-color: rgba(255,255,255,0.3);
+}
+
+#drawing-space #grid-checkbox input{
+    transform: scale(1.2);
+}
+
+#drawing-space .prompt-window{
+    background-color: rgba(255,255,255,0.8);
+    border-radius: 4px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 10px;
+    display: none;
+}
+
+#side-menu{
+    height: 95vh;
+    background-color: #efefef;
+}
+
+#side-menu #side-menu-editor{
+    height: 50%;
+    background-color: #efefef;
+    padding: 20px 30px;
+    border-bottom: 1px solid #a9a9a9;
+    overflow: auto;
+}
+
+#side-menu #side-menu-objects{
+    height: 50%;
+    padding: 20px 30px;
+    background-color: #2a2f30;
+    color: #fff;
+    overflow: auto;
+}
+#side-menu  #side-menu-objects hr{
+    background-color: #ffb600;
+}
+#side-menu  #side-menu-objects .list-group .list-group-item{
+    background-color: #5a6268;
+    border-color: #4e535b;
+    color: #fff;
+    padding: 5px 10px;
+    font-size: 0.8em;
+}
+#side-menu  #side-menu-objects .list-group .active{
+    background-color: #ffb600;
+    color: #fff;
+}
+
+#side-menu  #side-menu-objects .list-group .list-group-item:hover{
+    background-color: white;
+    color: #ffb600 !important;
+}
+
+#side-menu #side-menu-selection{
+    overflow:hidden;
+}
+
+#side-menu #side-menu-selection ul{
+    width: 100%;
+}
+
+#side-menu #side-menu-selection li a{
+    padding: 1px 6px;
+    margin: 2px;
+    border-radius: 4px;
+    height: 100%;
+    color: #1d2124;
+    background-color: #5a6268;
+}
+
+#side-menu #side-menu-selection li a:active {
+    color: #ffb600 !important;
+}
+
+#side-menu #side-menu-common-editor, #side-menu-particles-editor {
+    display: none;
+}
+#side-menu #side-menu-common-editor #side-menu-common-editor-color-box, #side-menu-common-editor-alpha-color-box{
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #1d2124;
+}
+
+#side-menu #side-menu-textures-editor{
+    display: none;
+}
+#side-menu #side-menu-texture-view{
+    width: 100%;
+}
+/* \Editor page styles */

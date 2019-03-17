@@ -1,0 +1,247 @@
+﻿<!DOCTYPE html>
+<head>
+	<meta charset="utf-8"/>
+	<title>Nibelung &bull; Начало</title>
+	<link rel="stylesheet" href="vendor/bootstrap-4.2.1-dist/css/bootstrap.min.css">
+	<link rel="stylesheet" href="css/style.css">
+	<script src="js/NibelungCore.js"></script>
+	<script src="shaders/flat_shader.js"></script>
+	<script>
+		Edge = function(source, dest, weight)
+		{
+		    this.source = source;
+		    this.dest = dest;
+		    this.weight = weight;
+		};
+
+		RandomMST = function(numVertices, range)
+		{
+		    // local fields
+		    this.numVertices = numVertices;
+		    this.verticeCoords = [];
+		    this.edges = [];
+
+		    // adding random coordinates to all the vertices and some edges between them
+		    for (let i = 0; i < this.numVertices; ++i)
+			{
+			    // 0,1,2 - coordinates, 3 - radius, 4 - offset, 5 - speed
+			    this.verticeCoords.push([
+			        0, 0, 0,
+					2*range*Math.random(), Math.PI*Math.random(), random(-0.5,0.5)
+				]);
+
+			    for (let j = 0; j < Math.ceil(random(0, numVertices)); ++j)
+				{
+				    let dest = Math.round(random(0, numVertices));
+
+					if (dest !== i)
+					{
+					    this.edges.push(new Edge(i, Math.round(random(0, numVertices-1)), 100*Math.random()));
+					}
+				}
+			}
+
+			// sorting all edges in order to use Kruskal's algorithm for MST
+			this.edges.sort(function(a, b){
+			    if (a instanceof Edge && b instanceof Edge)
+				{
+				    return a.weight - b.weight;
+				}
+			});
+
+		    // Kruskal's algorithm for MST
+			this.data = [];
+            // used as a map for the edges so we would need to execute the algorithm only once
+			this.mst = [];
+			let treeID = [];
+			for (let i = 0; i < this.numVertices; ++i) { treeID.push(i); }
+
+			for (let edge in this.edges)
+			{
+			    let source = this.edges[edge].source;
+			    let dest = this.edges[edge].dest;
+
+			    if (treeID[source] !== treeID[dest])
+				{
+				    // pushing into the buffer
+				    this.data.push(
+				        // source point
+				        this.verticeCoords[source][0],
+						this.verticeCoords[source][1],
+						this.verticeCoords[source][2],
+						// dest point
+						this.verticeCoords[dest][0],
+						this.verticeCoords[dest][1],
+						this.verticeCoords[dest][2]
+					);
+
+				    // adding edge to mst map
+				    this.mst.push(this.edges[edge]);
+
+				    // an old trick with array indexing
+				    let oldID = treeID[source];
+				    let newID = treeID[dest];
+
+				    for (let i = 0; i < numVertices; ++i)
+					{
+					    if (treeID[i] === oldID) { treeID[i] = newID; }
+					}
+				}
+			}
+
+			// buffer management
+			this.buf = gl.createBuffer();
+		    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+		    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.data), gl.DYNAMIC_DRAW);
+
+		    // some other fields
+		    this.vertexColor = [1, 0.71, 0];
+		    this.edgeColor = [1,1,1];
+		    this.pointSize = 10.0;
+		    this.center = [0,0,0];
+		};
+
+		RandomMST.prototype.draw = function()
+		{
+		    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+		    gl.uniform1f(uPointSize, this.pointSize);
+
+		    pushMatrix();
+		    	translate(this.center);
+
+				gl.enableVertexAttribArray(aXYZ);
+				gl.vertexAttribPointer(aXYZ, 3, gl.FLOAT, false, 3*FLOAT_SIZE, 0*FLOAT_SIZE);
+
+				useMatrix();
+				gl.uniform1i(uUseCircleMode, 0);
+            	gl.vertexAttrib3fv(aColor, this.edgeColor);
+				gl.drawArrays(gl.LINES, 0, this.data.length/3);
+
+            	gl.uniform1i(uUseCircleMode, 1);
+				gl.vertexAttrib3fv(aColor, this.vertexColor);
+				gl.drawArrays(gl.POINTS, 0, this.data.length/3);
+		    popMatrix();
+		};
+
+		RandomMST.prototype.update = function()
+		{
+		    this.data = [];
+
+		    for (let edge in this.mst)
+			{
+			    let source = this.mst[edge].source;
+			    let dest = this.mst[edge].dest;
+
+			    this.data.push(
+                    // source point
+                    this.verticeCoords[source][0],
+                    this.verticeCoords[source][1],
+                    this.verticeCoords[source][2],
+                    // dest point
+                    this.verticeCoords[dest][0],
+                    this.verticeCoords[dest][1],
+                    this.verticeCoords[dest][2]
+				);
+			}
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+		    gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(this.data));
+		};
+
+		function start()
+		{
+		    gl = getContext("graphs");
+		    flatProg = getProgram(FlatShader.vShader, FlatShader.fShader);
+		    switchProgram(flatProg);
+
+		    windowResize();
+		    window.addEventListener("resize", windowResize);
+
+		    gl.clearColor(0,0,0,0);
+
+		    identity();
+
+		    trees = [];
+
+		    for (let i = 0; i < Math.ceil(random(10,20)); i++)
+			{
+			    trees[i] = new RandomMST(Math.round(random(5,12)), random(30,70));
+			    trees[i].pointSize = 8.0;
+			    trees[i].center = [random(-gl.canvas.width/2, gl.canvas.width/2), random(-gl.canvas.height/2, gl.canvas.height/2), 0];
+			}
+
+		    drawFrame();
+		}
+
+		function drawFrame()
+		{
+		    let time = now();
+
+		    gl.clear(gl.COLOR_BUFFER_BIT);
+            lookAt([0,0,100], [0,0,0], [0,1,0]);
+
+            for (let i = 0; i < trees.length; i++)
+			{
+                for (let j = 0; j < trees[i].numVertices; j++)
+                {
+                    let radius = trees[i].verticeCoords[j][3];
+                    let offset = trees[i].verticeCoords[j][4];
+                    let speed = trees[i].verticeCoords[j][5];
+
+                    trees[i].verticeCoords[j][0] = radius*Math.cos(time*speed + offset);
+                    trees[i].verticeCoords[j][1] = radius*Math.sin(time*speed + offset);
+                }
+
+                trees[i].update();
+                trees[i].draw();
+			}
+
+		    requestAnimationFrame(drawFrame);
+		}
+
+		function windowResize()
+		{
+            gl.canvas.width = window.innerWidth;
+            gl.canvas.height = window.innerHeight*0.8;
+
+            gl.viewport(0,0,gl.canvas.width,gl.canvas.height);
+
+            ortho(gl.canvas.width,gl.canvas.height,-100,100);
+		}
+	</script>
+</head>
+<body onload="start();">
+	<!-- Page wrapper -->
+	<div class="col-12 text-center  no-padding">
+		<!-- Jumbotron -->
+		<div class="col-12 no-padding jumbotron-wrapper">
+			<!-- Drawing part -->
+			<noscript>
+				Няма наличен JS компонент.
+			</noscript>
+
+			<canvas id="graphs" class="no-padding">
+				Canvas не се поддържа от браузъра.
+			</canvas>
+
+			<!-- Greeting card -->
+			<div id="greeting-card" class="card absolute">
+				<div class="card-body">
+					<h2 class="card-title">Nibelung</h2>
+					<hr/>
+					<p class="card-text">Particle & Procedural Textures генератор</p>
+					<a href="editor.html" class="btn btn-primary">
+						Към редактора
+					</a>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- jQuery -->
+	<script src="vendor/jquery-3.3.1/jquery-3.3.1.min.js"></script>
+	<!-- Popper -->
+	<script src="vendor/popper-1.14.6/popper.min.js"></script>
+	<!-- Bootstrap -->
+	<script src="vendor/bootstrap-4.2.1-dist/js/bootstrap.min.js"></script>
+</body>

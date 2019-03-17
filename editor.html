@@ -1,0 +1,891 @@
+﻿<!DOCTYPE html>
+<head>
+	<meta charset="utf-8"/>
+	<title>Nibelung &bull; Редактор</title>
+	<link rel="stylesheet" href="vendor/bootstrap-4.2.1-dist/css/bootstrap.min.css">
+	<link href="vendor/fontawesome-free-5.6.3-web/css/all.css" rel="stylesheet">
+	<link rel="stylesheet" href="css/style.css">
+	<!-- shaders -->
+	<script src="shaders/flat_shader.js"></script>
+	<script src="shaders/diffuse_shader.js"></script>
+	<script src="shaders/perlin_noise_shader.js"></script>
+	<!-- core library -->
+	<script src="js/NibelungCore.js"></script>
+	<!-- built in models -->
+	<script src="js/Models/Grid.js"></script>
+	<script src="js/Models/GeoObjects/GeoObject.js"></script>
+	<script src="js/Models/GeoObjects/Cuboid.js"></script>
+	<script src="js/Models/GeoObjects/Cylinder.js"></script>
+	<script src="js/Models/GeoObjects/Pyramid.js"></script>
+	<script src="js/Models/GeoObjects/Cone.js"></script>
+	<script src="js/Models/GeoObjects/CubicSphere.js"></script>
+	<script src="js/Models/GeoObjects/Sprite.js"></script>
+	<script src="js/Models/Particles/Particle.js"></script>
+	<script src="js/Models/Particles/Particles.js"></script>
+	<script src="js/Models/Particles/PlaneParticles.js"></script>
+	<script src="js/Models/Particles/PointParticles.js"></script>
+	<script src="js/Models/OrientationCube.js"></script>
+	<script src="js/Models/Group.js"></script>
+	<!-- ui controller -->
+	<script src="js/Controllers/TimeController.js"></script>
+	<script src="js/Controllers/EyeController.js"></script>
+	<script src="js/Controllers/ObjectSelectionController.js"></script>
+	<script src="js/Controllers/ParticlesController.js"></script>
+	<script src="js/Controllers/ImagesController.js"></script>
+	<script src="js/Controllers/SideMenuController.js"></script>
+	<!-- procedural textures -->
+	<script src="js/Textures/PerlinNoise.js"></script>
+	<script>
+		let timeController;
+		var objectSelectionController;
+		let particlesController;
+		let eye;
+		let sideMenu;
+		let grid;
+		// pixel selection
+		var mouseX;
+		var mouseY;
+        var pixValues = new Uint8Array(16);
+        let frameBuf;
+
+        // Perlin noise
+        var perlinGrid;
+        let perlinScale = 25.6;
+        let perlinRows = 10;
+        let perlinCols = 10;
+        let perlinColor =  [1,1,1];
+        let perlinTex;
+
+		function start()
+		{
+		    gl = getContext("main-canvas");
+		    canvas.addEventListener("webglcontextlost", function (event) { event.preventDefault();}, false);
+		    canvas.addEventListener("webglcontextrestored", init, false);
+
+		    canvas.addEventListener("mousemove", function(event){
+                mouseX = getX(event) + Math.round(gl.canvas.width/2);
+                mouseY = getY(event) + Math.round(gl.canvas.height/2);
+			});
+
+			window.addEventListener("wheel",  function (event) { event.stopPropagation();}, false);
+
+		    init();
+		}
+
+		function init()
+		{
+            flatProg = getProgram(FlatShader.vShader, FlatShader.fShader);
+            diffuseProg = getProgram(DiffuseShader.vShader, DiffuseShader.fShader);
+            perlinProg = getProgram(PerlinShader.vShader, PerlinShader.fShader);
+
+            switchProgram(flatProg);
+            windowResize();
+            window.addEventListener("resize", windowResize);
+            window.addEventListener("beforeunload", unload);
+
+            // colors & depth testing
+            gl.clearColor(0.6,0.6,0.6,1);
+            gl.enable(gl.DEPTH_TEST);
+            // enabling transparency mode
+			gl.enable(gl.BLEND);
+			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+			gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+			identity();
+
+            // important global variablse
+            timeController = new TimeController();
+            eye = new EyeController(950, 45, 30);
+            objectSelectionController = new ObjectSelectionController();
+            objectSelectionController.pushCustomCubicSphere(1, [0,0,0], [10,10,10]);
+            particlesController = new ParticlesController(objectSelectionController.objects.getObject(0));
+            sideMenu = new SideMenuController(particlesController.container, objectSelectionController.objects);
+            imagesController = new ImagesController();
+
+            // objects
+            grid = new Grid(24, [0,0,0], 30);
+
+            // frame buffer to render textures within
+            frameBuf = gl.createFramebuffer();
+            // Perlin noise grid
+            perlinGrid = new PerlinGrid([0,0,0],[perlinScale,perlinScale,perlinScale], perlinRows, perlinCols, perlinColor);
+
+            // initializing a drawing procedure
+            drawFrame();
+		}
+
+        let time = now();
+
+		function drawFrame()
+		{
+            drawPerlin(true);
+            windowResize();
+		    // timer tricks
+		    let currTime = now();
+		    timeController.updateTimer(currTime-time);
+			time = currTime;
+
+			// interpolating eye resulting in smooth movement
+            eye.viewHAngle = eye.viewHAngle*0.9 + eye.hAngle*0.1;
+            eye.viewVAngle = eye.viewVAngle*0.9 + eye.vAngle*0.1;
+            eye.viewRadius = eye.viewRadius*0.8 + eye.radius*0.2;
+
+            gl.clear(gl.COLOR_BUFFER_BIT + gl.DEPTH_BUFFER_BIT);
+
+            switchProgram(flatProg);
+            updateProjection(gl.canvas.width, gl.canvas.height);
+            lookAt(eye.getSphericalCoords(), eye.target, [0,0,1]);
+            gl.uniform1f(uPointSize, 6);
+
+            // drawing depending onto the side menu
+            switch (sideMenu.mode)
+			{
+				case 0:
+				    drawParticles();
+				    break;
+				case 2:
+                    drawAsset();
+				    break;
+				case 3:
+				    grid.draw();
+				    break;
+			}
+
+		    requestAnimationFrame(drawFrame);
+		}
+
+		function drawAsset()
+		{
+            // flat items
+            switchProgram(flatProg);
+            updateProjection(gl.canvas.width, gl.canvas.height);
+            lookAt(eye.getSphericalCoords(), eye.target, [0,0,1]);
+            gl.uniform1f(uPointSize, 10);
+
+            if (typeof sideMenu.selected !== 'undefined')
+			{
+                objectSelectionController.objects.objects[sideMenu.selected].drawVertices(true);
+			}
+
+            // todo: was giving some awkward bugs
+            // selecting vertices
+            gl.readPixels(mouseX, mouseY+0.05*window.innerHeight, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, pixValues);
+
+            gl.clear(gl.COLOR_BUFFER_BIT + gl.DEPTH_BUFFER_BIT);
+            // regular draw
+            if (typeof sideMenu.selected !== 'undefined')
+            {
+                objectSelectionController.draw(false, true, false, sideMenu.selected);
+                objectSelectionController.draw(false, false, true, sideMenu.selected);
+            }
+
+            grid.draw();
+
+            // diffuse items
+            switchProgram(diffuseProg);
+            updateProjection(gl.canvas.width, gl.canvas.height);
+            lookAt(eye.getSphericalCoords(), eye.target, [0,0,1]);
+            gl.uniform3fv(uAmbientColor, [0.5,0.5,0.5]);
+            gl.uniform3fv(uDiffuseColor, [1,1,1]);
+            // textures
+            gl.uniform1i(uSampler, 0);
+            gl.uniform1i(uAlphaSampler, 1);
+
+            let uDirectionalLights = gl.getUniformLocation(glProg, "uDirectionalLights");
+            gl.uniform3fv(uDirectionalLights, [1,1,1]);
+            gl.uniform1f(uAlpha, 1);
+            // drawing items
+            if (typeof sideMenu.selected !== 'undefined')
+            {
+                objectSelectionController.draw(true, false, false, sideMenu.selected);
+            }
+		}
+
+		function drawParticles()
+		{
+			let interval = timeController.timer - timeController.oldTime;
+            timeController.oldTime = timeController.timer;
+		    // todo: get into a separate function
+            switchProgram(flatProg);
+            updateProjection(gl.canvas.width, gl.canvas.height);
+            lookAt(eye.getSphericalCoords(), eye.target, [0,0,1]);
+            gl.uniform1f(uPointSize, 6);
+
+            particlesController.drawParticles(false, true);
+            grid.draw();
+
+            // todo: change location diffuse items
+            switchProgram(diffuseProg);
+            updateProjection(gl.canvas.width, gl.canvas.height);
+            lookAt(eye.getSphericalCoords(), eye.target, [0,0,1]);
+            gl.uniform3fv(uAmbientColor, [0.5,0.5,0.5]);
+            gl.uniform3fv(uDiffuseColor, [1,1,1]);
+            // textures
+            gl.uniform1i(uSampler, 0);
+
+            let uDirectionalLights = gl.getUniformLocation(glProg, "uDirectionalLights");
+            gl.uniform3fv(uDirectionalLights, [1,1,1]);
+
+            // todo: fix dummy value
+			particlesController.moveParticles(interval);
+            particlesController.drawParticles();
+		}
+
+		function drawPerlin(move = false)
+		{
+            switchProgram(perlinProg);
+            updateProjection(gl.canvas.width, gl.canvas.height, true);
+            lookAt([0,0,10], [0,0,0], [0,1,0]);
+
+            // rendering to a frame buffer
+            let targetTextureWidth = 256;
+            let targetTextureHeight = 256;
+
+            // clearing up memory
+			for (let key in objectSelectionController.objects.objects)
+			{
+			    if (objectSelectionController.objects.objects[key].texKeyHeight === "perlin")
+				{
+                    objectSelectionController.objects.objects[key].texHeight = undefined;
+				}
+			}
+            gl.deleteTexture(perlinTex);
+
+			// doing the magic
+            perlinTex = gl.createTexture();
+            frameBuf = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuf);
+            gl.bindTexture(gl.TEXTURE_2D, perlinTex);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, perlinTex, 0);
+
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, targetTextureWidth, targetTextureHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+		    gl.viewport(0,0, targetTextureWidth, targetTextureHeight);
+            gl.clear(gl.COLOR_BUFFER_BIT + gl.DEPTH_BUFFER_BIT);
+            updateProjection(targetTextureWidth, targetTextureHeight, true);
+
+
+            // Making some movements happen
+			for (let i = 0; i < gradientVectors.length && move; ++i)
+			{
+				// Assigning a cosine/sine function to control the animation
+				gradientVectors[i][0] = Math.cos(time*2 + 4*i/gradientVectors.length);
+				gradientVectors[i][1] = Math.sin(time*2 + 4*i/gradientVectors.length);
+
+				// Keeping it still a unit vector
+				gradientVectors[i] = unitVector2D(gradientVectors[i]);
+			}
+
+            pushMatrix();
+				translate([perlinScale/2, perlinScale/2,0]);
+				perlinGrid.draw();
+            popMatrix();
+
+            for (let key in objectSelectionController.objects.objects)
+            {
+                if (objectSelectionController.objects.objects[key].texKeyHeight === "perlin")
+                {
+                    objectSelectionController.objects.objects[key].texHeight = perlinTex;
+                }
+            }
+
+            // restoring state to the original FrameBuffer - the canvas
+			gl.deleteFramebuffer(frameBuf);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		}
+
+		function windowResize()
+		{
+		    let widthInPerc = ((100/12)*10)/100;
+		    gl.canvas.width = window.innerWidth*widthInPerc;
+		    gl.canvas.height = window.innerHeight*0.95;
+
+		    gl.viewport(0,0, gl.canvas.width, gl.canvas.height);
+
+			updateProjection(gl.canvas.width, gl.canvas.height);
+		}
+
+		function unload(event)
+		{
+		    let message = "Наистина ли искате да напуснете? /n При напускане текущата ви работа ще бъде загубена.";
+
+			event = event || window.event;
+
+		    if (event)
+			{
+			    event.returnValue = message;
+			}
+
+			return message;
+		}
+
+		function updateProjection(width, height, isOrtho = false)
+		{
+		    if (!isOrtho)
+			{
+                perspective(30, width/height, 1, 40000);
+			}
+            else { ortho(width, height, -1000, 1000); }
+		}
+	</script>
+</head>
+<body onload="start();">
+	<!-- Page wrapper -->
+	<div class="col-12 text-center  no-padding">
+		<!-- Top Menu -->
+		<div class="col-12 no-padding">
+			<nav class="navbar navbar-expand-lg navbar-light bg-light">
+				<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
+					<span class="navbar-toggler-icon"></span>
+				</button>
+				<div class="collapse navbar-collapse">
+					<ul class="navbar-nav">
+						<li class="nav-item dropdown">
+							<a class="nav-link dropdown-toggle" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+								Файл
+							</a>
+							<div class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink">
+								<a class="dropdown-item" onclick="imagesController.requestJPGUpload();">Импортирай .jpg</a>
+							</div>
+						</li>
+						<li class="nav-item dropdown">
+							<a class="nav-link dropdown-toggle" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+								Обекти
+							</a>
+							<div class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink">
+								<a class="dropdown-item" onclick="objectSelectionController.pushCustomCuboid();">Кубоид</a>
+								<a class="dropdown-item" onclick="objectSelectionController.pushCustomCylinder();">Цилиндър</a>
+								<a class="dropdown-item" onclick="objectSelectionController.pushCustomPyramid();">Пирамида</a>
+								<a class="dropdown-item" onclick="objectSelectionController.pushCustomCone();">Конус</a>
+								<a class="dropdown-item" onclick="objectSelectionController.pushCustomCubicSphere();">Кубична Сфера</a>
+								<a class="dropdown-item" onclick="objectSelectionController.pushCustomSprite();">Спрайт</a>
+							</div>
+						</li>
+						<li class="nav-item dropdown">
+							<a class="nav-link dropdown-toggle" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+								Частици
+							</a>
+							<div class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink">
+								<a class="dropdown-item" onclick="particlesController.insertPoint();">С точков източник</a>
+								<a class="dropdown-item" onclick="particlesController.insertPlanar();">С планарен източник</a>
+							</div>
+						</li>
+					</ul>
+				</div>
+			</nav>
+		</div>
+		<!-- \Top Menu -->
+
+		<!-- Bottom Part -->
+		<div class="col-md-12 no-padding d-flex justify-content-between">
+			<!-- Drawing Place -->
+			<div id="drawing-space" class="col-10 no-padding">
+				<!-- Drawing canvas -->
+				<canvas id="main-canvas" class="absolute" tabIndex="-1"></canvas>
+
+				<!-- Playing controls -->
+				<div id="controls" class="col mx-auto absolute">
+					<a id="controls-play"><i class="fas fa-play-circle"></i></a>
+					<a id="controls-pause"><i class="fas fa-pause-circle"></i></a>
+					<a id="controls-stop"><i class="fas fa-stop-circle"></i></a>
+					<kbd id="controls-timer" class="align-middle">0 сек</kbd>
+				</div>
+				<!-- \Playing controls -->
+
+				<!-- Grid checkbox -->
+				<div id="grid-checkbox-container" class="checkbox absolute">
+					<label><input id="grid-checkbox" type="checkbox" checked> Мрежа</label>
+				</div>
+				<!-- \Grid checkbox -->
+
+				<!-- Additional commands -->
+				<div id="additional-options" class="col-6 prompt-window">
+					<h6>Още команди</h6><hr>
+					<div class="col text-left">
+						<kbd>A</kbd> - Начална позиция<br/>
+						<kbd>W</kbd> - Пусни/Изключи wireframe режима<br/>
+						<kbd>M</kbd> - Пусни/Изключи mesh режима<br/>
+						<kbd>Alt + Mouse Left Btn</kbd> - Избор на върхове (единствено при ресурси)<br/>
+						<kbd>E</kbd> - Редакция на върхове<br/>
+						<hr/>
+						<p>*Ако някой от клавишите не работи натиснете върху рисувателното поле с мишката и пробвайте отново.</p>
+						<p>*Времевите контролери важат само за particles.</p>
+					</div>
+				</div>
+				<!-- \Additional commands -->
+
+				<!-- Vertex edit prompt -->
+				<div id="edit-vertex" class="col-6 prompt-window">
+					<h6>Редакция на върхове</h6><hr/>
+					<div class="form-group row"><label class="col col-form-label col-form-label-sm"><h6>Отместване с:</h6></label></div>
+					<!-- X vertex offset -->
+					<div class="form-group col-4 d-inline-block">
+						<label class="col col-form-label col-form-label-sm"><h6>X(-10 до 10):</h6></label>
+					</div>
+					<div class="form-group col-6 d-inline-block">
+						<input id="edit-vertex-pos-x" type="range" value="0" min="-100" max="100" class="slider">
+					</div>
+					<!-- Y vertex offset -->
+					<div class="form-group col-4 d-inline-block">
+						<label class="col col-form-label col-form-label-sm"><h6>Y(-10 до 10):</h6></label>
+					</div>
+					<div class="form-group col-6 d-inline-block">
+						<input id="edit-vertex-pos-y" type="range" value="0" min="-100" max="100" class="slider">
+					</div>
+					<!-- Z vertex offset -->
+					<div class="form-group col-4 d-inline-block">
+						<label class="col col-form-label col-form-label-sm"><h6>Z(-10 до 10):</h6></label>
+					</div>
+					<div class="form-group col-6 d-inline-block">
+						<input id="edit-vertex-pos-z" type="range" value="0" min="-100" max="100" class="slider">
+					</div><hr/><br/>
+					<!-- Button to submit edit -->
+					<button id="edit-vertex-submit" class="btn btn-primary">Отмести</button>
+				</div>
+				<!-- Vertex edit prompt -->
+
+				<!-- Creation prompt -->
+				<div id="size-prompt" class="col-6 prompt-window">
+					<h5 id="size-prompt-title">Нов обект</h5><hr/>
+					<div class="col-5 d-inline-block">
+						<span id="size-prompt-text">Стени: 1</span>
+					</div>
+					<div class="col-6 d-inline-block">
+						<input id="size-prompt-input" type="range" value="1" class="slider">
+					</div><br/><br/><hr/>
+					<button id="size-prompt-btn" class="btn btn-primary">Създай</button>
+				</div>
+				<!-- \Creation prompt -->
+
+				<!-- Image upload prompt -->
+				<div id="image-upload-prompt" class="col-6 prompt-window">
+					<h5 id="image-upload-prompt-title">Качване на .jpg</h5><hr/>
+					<div class="col-6 d-inline-block">
+						<input id="image-upload-prompt-input" type="file" onchange=""><br>
+					</div><br/><hr/>
+					<img height="256" id="image-upload-prompt-preview" accept="image/*" alt="Преглед на изображение">
+					<hr/>
+					<p id="image-upload-prompt-error-msg" class="text-danger">
+						Или размерите на картинката трябва да са степени на двойката, или нищо сте качили.
+					</p>
+					<button id="image-upload-prompt-btn" class="btn btn-primary">Импортирай</button>
+				</div>
+				<!-- \Image upload prompt -->
+
+				<!-- Command keys -->
+				<div id="canvas-commands" class="text-left absolute">
+					<kbd>Shift + Drag Left Mouse Btn</kbd> - Ротация<br/>
+					<kbd>Shift + Scroll</kbd> - Мащаб по радиус<br/>
+					<kbd>Shift + Drag Middle Mouse Btn</kbd> - Движение<br/>
+					<kbd>Shift + Drag Right Mouse Btn</kbd> - Движение<br/>
+					<kbd>Hold Space</kbd> - Още опции<br/>
+				</div>
+				<!-- \Command keys -->
+			</div>
+			<!-- \Drawing Place -->
+
+
+
+
+			<!-- Side Menu -->
+			<div id="side-menu" class="col-2 text-left no-padding">
+				<div id="side-menu-editor" class="col">
+					<!-- Title -->
+					<p id="side-menu-empty-text">Не сте посочили елемент.</p>
+					<!-- Side menu textures viewer -->
+					<div id="side-menu-textures-editor" class="col">
+						<img id="side-menu-texture-view" alt="Преглед на изображение">
+					</div>
+					<!-- \Side menu textures viewer -->
+					<h5 id="side-menu-editor-title"></h5><hr/><a id="side-menu-editor-delete"><i class="fas fa-trash"></i></a>
+					<!-- Side menu asset editor -->
+					<form id="side-menu-common-editor">
+						<p>*тази форма е единствено за удобство при редакция на базов обект</p>
+						<!-- Object Center -->
+						<div class="form-group row"><label class="col col-form-label col-form-label-sm"><h6>Релативен център:</h6></label></div>
+						<div class="form-group col row">
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-center-x" type="email" class="col form-control form-control-sm" placeholder="X">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-center-y" type="email" class="col form-control form-control-sm" placeholder="Y">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-center-z" type="email" class="col form-control form-control-sm" placeholder="Z">
+							</div>
+						</div>
+
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Мащаб:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-scale-x" type="email" class="col form-control form-control-sm" placeholder="X">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-scale-y" type="email" class="col form-control form-control-sm" placeholder="Y">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-scale-z" type="email" class="col form-control form-control-sm" placeholder="Z">
+							</div>
+						</div>
+
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Ротация:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-rot-x" type="email" class="col form-control form-control-sm" placeholder="X">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-rot-y" type="email" class="col form-control form-control-sm" placeholder="Y">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-common-editor-rot-z" type="email" class="col form-control form-control-sm" placeholder="Z">
+							</div>
+						</div>
+                        <hr/>
+                        <div class="form-group row">
+                            <label class="col col-form-label col-form-label-sm">
+                                <h6>Цвят <div id="side-menu-common-editor-color-box" class="d-inline-block"></div></h6>
+                            </label>
+                        </div>
+                        <div class="form-group col row">
+                            <div class="input-group">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text">#</span>
+                                </div>
+                                <input id="side-menu-common-editor-color" type="text" class="form-control" placeholder="hex">
+                            </div>
+                        </div>
+						<!-- Texture selection -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Текстура:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<select id="side-menu-common-editor-texture" class="form-control"></select>
+						</div>
+						<!-- \Texture selection -->
+						<br/>
+						<!-- Texture selection -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Процедурна алфа карта:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<select id="side-menu-common-editor-alpha" class="form-control">
+								<option value="-1" selected="selected">Няма</option>
+								<option value="perlin">Перлинов шум</option>
+							</select>
+						</div>
+						<!-- \Texture selection -->
+						<!-- Alpha color -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm">
+								<h6>Алфа Цвят <div id="side-menu-common-editor-alpha-color-box" class="d-inline-block"></div></h6>
+							</label>
+						</div>
+						<div class="form-group col row">
+							<div class="input-group">
+								<div class="input-group-prepend">
+									<span class="input-group-text">#</span>
+								</div>
+								<input id="side-menu-common-editor-alpha-color" type="text" class="form-control" placeholder="hex">
+							</div>
+						</div>
+						<br/>
+					</form>
+					<!-- \Side menu asset editor -->
+					<!-- Side menu particles editor -->
+					<form id="side-menu-particles-editor">
+						<!-- Center -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Център:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-center-x" type="email" class="col form-control form-control-sm" placeholder="X">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-center-y" type="email" class="col form-control form-control-sm" placeholder="Y">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-center-z" type="email" class="col form-control form-control-sm" placeholder="Z">
+							</div>
+						</div>
+						<!-- /Center -->
+						<!-- Range -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Обхват:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-range-x" type="email" class="col form-control form-control-sm" placeholder="X">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-range-y" type="email" class="col form-control form-control-sm" placeholder="Y">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-range-z" type="email" class="col form-control form-control-sm" placeholder="Z">
+							</div>
+						</div>
+						<!-- \Range -->
+						<!-- Rotation -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Ротация:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-rot-x" type="email" class="col form-control form-control-sm" placeholder="X">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-rot-y" type="email" class="col form-control form-control-sm" placeholder="Y">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-rot-z" type="email" class="col form-control form-control-sm" placeholder="Z">
+							</div>
+						</div>
+						<!-- \Rotation -->
+                        <!-- Planar Direction -->
+                        <div id="side-menu-particles-editor-pl-dir">
+                            <hr/>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Посока:</h6></label>
+                            </div>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>X:</h6></label>
+                            </div>
+                            <div class="form-group col row">
+                                <!-- value get's divided by 10 -->
+                                <input id="side-menu-particles-editor-pl-dir-x" type="range" min="-100" max="100" class="slider">
+                            </div>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Y:</h6></label>
+                            </div>
+                            <div class="form-group col row">
+                                <!-- value get's divided by 10 -->
+                                <input id="side-menu-particles-editor-pl-dir-y" type="range" min="-100" max="100" class="slider">
+                            </div>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Z:</h6></label>
+                            </div>
+                            <div class="form-group col row">
+                                <!-- value get's divided by 10 -->
+                                <input id="side-menu-particles-editor-pl-dir-z" type="range" min="-100" max="100" class="slider">
+                            </div>
+                            <hr/>
+                        </div>
+                        <!-- \Planar Direction -->
+                        <!-- Point Direction -->
+                        <div id="side-menu-particles-editor-point-dir">
+                            <hr/>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Граници:</h6></label>
+                            </div>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Хор. ляво:</h6></label>
+                            </div>
+                            <div class="form-group col row">
+                                <!-- value get's divided by 10 -->
+                                <input id="side-menu-particles-editor-point-h-left" type="range" min="-180" max="180" class="slider">
+                            </div>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Хор. дясно:</h6></label>
+                            </div>
+                            <div class="form-group col row">
+                                <!-- value get's divided by 10 -->
+                                <input id="side-menu-particles-editor-point-h-right" type="range" min="-180" max="180" class="slider">
+                            </div>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Верт. долу:</h6></label>
+                            </div>
+                            <div class="form-group col row">
+                                <!-- value get's divided by 10 -->
+                                <input id="side-menu-particles-editor-point-v-down" type="range" min="-90" max="90" class="slider">
+                            </div>
+                            <div class="form-group row">
+                                <label class="col col-form-label col-form-label-sm"><h6>Верт. горе:</h6></label>
+                            </div>
+                            <div class="form-group col row">
+                                <!-- value get's divided by 10 -->
+                                <input id="side-menu-particles-editor-point-v-up" type="range" min="-90" max="90" class="slider">
+                            </div>
+                            <hr/>
+                        </div>
+                        <!-- \Point Direction -->
+						<!-- Base object -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Базов обект:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<select id="side-menu-particles-editor-base-object" class="form-control"></select>
+						</div>
+						<!-- \Base object -->
+						<hr/>
+						<!-- Density -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Гъстота(1-500):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<input id="side-menu-particles-editor-density" type="range" value="100" min="1" max="500" class="slider">
+						</div>
+						<!-- \Density -->
+						<!-- Average Speed -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Средна скорост(0-60):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<input id="side-menu-particles-editor-avg-speed" type="range" value="20" min="0" max="150" class="slider">
+						</div>
+						<!-- \Average Speed -->
+						<!-- Average Size -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Среден размер(0-10):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<!-- value get's divided by 10 -->
+							<input id="side-menu-particles-editor-avg-size" type="range" value="2" min="0" max="100" class="slider">
+						</div>
+						<!-- \Average Size -->
+						<!-- Density -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Прозрачност:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<!-- value get's divided by 100 -->
+							<input id="side-menu-particles-editor-alpha" type="range" min="0" max="100" class="slider">
+						</div>
+						<!-- \Density -->
+						<!-- Average Rotation -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Въртящ момент:</h6></label>
+						</div>
+						<div class="form-group col row">
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-avg-rot-x" type="email" class="col form-control form-control-sm" placeholder="X">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-avg-rot-y" type="email" class="col form-control form-control-sm" placeholder="Y">
+							</div>
+							&nbsp;
+							<div class="col-sm-3 no-padding">
+								<input id="side-menu-particles-editor-avg-rot-z" type="email" class="col form-control form-control-sm" placeholder="Z">
+							</div>
+						</div>
+						<!-- \Average Rotation -->
+						<hr/>
+						<!-- Path randomization -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Коеф. на отклонение(0-1):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<!-- value get's divided by 100 -->
+							<input id="side-menu-particles-editor-path-rand" type="range" value="5" min="0" max="100" class="slider">
+						</div>
+						<!-- Path randomization -->
+						<!-- Max direction offset -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Максимално отклонение(0-1):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<!-- value get's divided by 100 -->
+							<input id="side-menu-particles-editor-max-dir-offset" type="range" value="5" min="0" max="100" class="slider">
+						</div>
+						<!-- /Max direction offset -->
+						<!-- Average speed offset -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Скоростно отклонение(0-10):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<!-- value get's divided by 10 -->
+							<input id="side-menu-particles-editor-avg-speed-offset" type="range" value="5" min="0" max="100" class="slider">
+						</div>
+						<!-- /Average speed offset -->
+						<!-- Average size offset -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Размерно отклонение(0-10):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<!-- value get's divided by 10 -->
+							<input id="side-menu-particles-editor-avg-size-offset" type="range" value="5" min="0" max="100" class="slider">
+						</div>
+						<!-- /Average size offset -->
+						<!-- Average rotation offset -->
+						<div class="form-group row">
+							<label class="col col-form-label col-form-label-sm"><h6>Ротационно отклонение(0-10):</h6></label>
+						</div>
+						<div class="form-group col row">
+							<!-- value get's divided by 10 -->
+							<input id="side-menu-particles-editor-avg-rot-offset" type="range" value="5" min="0" max="100" class="slider">
+						</div>
+						<!-- /Average rotation offset -->
+					</form>
+					<!-- Side menu particles editor -->
+				</div>
+
+
+
+				<div id="side-menu-objects" class="col no-padding">
+					<div id="side-menu-nav" class="col no-padding">
+						<nav id="side-menu-selection" class="navbar no-padding navbar-expand-lg navbar-light bg-light">
+							<div class="collapse navbar-collapse">
+								<ul class="col navbar-nav no-padding">
+									<li class="nav-item dropdown">
+										<a id="side-menu-particles" class="nav-link" data-toggle="tooltip" data-placement="bottom" title="Частици">
+											<i class="fas fa-cloud-rain"></i>
+										</a>
+									</li>
+									<li class="nav-item dropdown">
+										<a id="side-menu-assets" class="nav-link" data-toggle="tooltip" data-placement="bottom" title="Ресурси">
+											<i class="fas fa-vector-square"></i>
+										</a>
+									</li>
+									<li class="nav-item dropdown">
+										<a id="side-menu-textures" class="nav-link" data-toggle="tooltip" data-placement="bottom" title="Текстури">
+											<i class="fas fa-file-image"></i>
+										</a>
+									</li>
+								</ul>
+							</div>
+						</nav>
+					</div>
+					<br/>
+					<!-- contains layers -->
+					<div class="col">
+						<div id="side-menu-list" class="list-group"></div>
+						<p id="side-menu-list-empty-msg">Няма въведени елементи.</p>
+					</div>
+				</div>
+			</div>
+			<!-- /Side Menu -->
+		</div>
+		<!-- /Bottom Part -->
+	</div>
+
+	<!-- jQuery -->
+	<script src="vendor/jquery-3.3.1/jquery-3.3.1.min.js"></script>
+	<!-- Popper -->
+	<script src="vendor/popper-1.14.6/popper.min.js"></script>
+	<!-- Bootstrap -->
+	<script src="vendor/bootstrap-4.2.1-dist/js/bootstrap.min.js"></script>
+
+	<script>
+        $(document).ready(function(){
+            $('[data-toggle="tooltip"]').tooltip();
+        });
+	</script>
+</body>
